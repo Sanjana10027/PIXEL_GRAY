@@ -468,3 +468,12 @@ button:active {
     font-size: 11px;
     margin-bottom: 5px;
 }
+
+
+.viewport-container {
+    display: flex;
+    justify-content: flex-start; /* Do not use center */
+    align-items: flex-start;    /* Do not use center */
+    overflow: auto;
+    position: relative;
+}
