@@ -78,81 +78,87 @@ const LayerPanel = ({ layers, onToggleVisibility, onDeleteLayer, onMoveLayer, on
         <span className="panel-title">LAYER STACK</span>
         <span className="layer-count">{layers.length} layers</span>
       </div>
-      <div className="layer-list">
-        {layers.length === 0 ? (
-          <div className="empty-layers">No layers yet. Create layers using the buttons on the left.</div>
-        ) : (
-          layers.map((layer, index) => (
-            <div 
-              key={layer.id} 
-              className={`layer-item ${!layer.visible ? 'layer-hidden' : ''}`}
-            >
-              <div className="layer-visibility" onClick={() => onToggleVisibility(layer.id)}>
-                {layer.visible ? '👁️' : '👁️‍🗨️'}
+      
+<div className="layer-list">
+  {layers.length === 0 ? (
+    <div className="empty-layers">No layers yet. Create layers using the buttons on the left.</div>
+  ) : (
+    // REVERSE the array for display so bottom layers show at bottom of UI
+    [...layers].reverse().map((layer, displayIndex) => {
+      // Calculate actual index in the array
+      const actualIndex = layers.length - 1 - displayIndex;
+      
+      return (
+        <div 
+          key={layer.id} 
+          className={`layer-item ${!layer.visible ? 'layer-hidden' : ''}`}
+        >
+          <div className="layer-visibility" onClick={() => onToggleVisibility(layer.id)}>
+            {layer.visible ? '👁️' : '👁️‍🗨️'}
+          </div>
+          
+          <div className="layer-info">
+            <div className="layer-name">{layer.name}</div>
+            <div className="layer-type">{layer.type}</div>
+            {layer.type === 'color' && (
+              <div className="layer-preview-color" style={{ backgroundColor: layer.color }}></div>
+            )}
+            {layer.type === 'gradient' && (
+              <div className="layer-preview-gradient" style={{ background: layer.gradient }}></div>
+            )}
+            
+            {(layer.type === 'color' || layer.type === 'gradient' || layer.type === 'image' || layer.type === 'filter') && (
+              <div className="layer-opacity-control">
+                <span className="opacity-label">Opacity: {Math.round(layer.opacity * 100)}%</span>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={Math.round(layer.opacity * 100)} 
+                  onChange={(e) => onOpacityChange(layer.id, parseFloat(e.target.value) / 100)}
+                  className="opacity-slider"
+                />
               </div>
-              
-              <div className="layer-info">
-                <div className="layer-name">{layer.name}</div>
-                <div className="layer-type">{layer.type}</div>
-                {layer.type === 'color' && (
-                  <div className="layer-preview-color" style={{ backgroundColor: layer.color }}></div>
-                )}
-                {layer.type === 'gradient' && (
-                  <div className="layer-preview-gradient" style={{ background: layer.gradient }}></div>
-                )}
-                
-                {/* Opacity slider for color, gradient, image, and filter layers */}
-                {(layer.type === 'color' || layer.type === 'gradient' || layer.type === 'image' || layer.type === 'filter') && (
-                  <div className="layer-opacity-control">
-                    <span className="opacity-label">Opacity: {Math.round(layer.opacity * 100)}%</span>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="100" 
-                      value={Math.round(layer.opacity * 100)} 
-                      onChange={(e) => onOpacityChange(layer.id, parseFloat(e.target.value) / 100)}
-                      className="opacity-slider"
-                    />
-                  </div>
-                )}
-              </div>
+            )}
+          </div>
 
-              <div className="layer-controls">
-                <button 
-                  className="layer-btn" 
-                  onClick={() => onMoveLayer(index, 'up')}
-                  disabled={index === layers.length - 1}
-                  title="Move Up"
-                >
-                  ▲
-                </button>
-                <button 
-                  className="layer-btn" 
-                  onClick={() => onMoveLayer(index, 'down')}
-                  disabled={index === 0}
-                  title="Move Down"
-                >
-                  ▼
-                </button>
-                <button 
-                  className="layer-btn layer-btn-duplicate" 
-                  onClick={() => onDuplicateLayer(layer.id)}
-                  title="Duplicate"
-                >
-                  ⧉
-                </button>
-                <button 
-                  className="layer-btn layer-btn-delete" 
-                  onClick={() => onDeleteLayer(layer.id)}
-                  title="Delete"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+          <div className="layer-controls">
+            <button 
+              className="layer-btn" 
+              onClick={() => onMoveLayer(actualIndex, 'up')}
+              disabled={actualIndex === layers.length - 1}
+              title="Move Up"
+            >
+              ▲
+            </button>
+            <button 
+              className="layer-btn" 
+              onClick={() => onMoveLayer(actualIndex, 'down')}
+              disabled={actualIndex === 0}
+              title="Move Down"
+            >
+              ▼
+            </button>
+            <button 
+              className="layer-btn layer-btn-duplicate" 
+              onClick={() => onDuplicateLayer(layer.id)}
+              title="Duplicate"
+            >
+              ⧉
+            </button>
+            <button 
+              className="layer-btn layer-btn-delete" 
+              onClick={() => onDeleteLayer(layer.id)}
+              title="Delete"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      );
+    })
+  )}
+</div>
     </div>
   );
 };
@@ -398,6 +404,62 @@ export default function App() {
     resetToolStates();
   };
 
+
+  // Remove background and show in Result view
+const handleRemoveBackground = async () => {
+  if (!originalBlob) return;
+  
+  setLoading(true);
+  const fd = new FormData();
+  fd.append("image", originalBlob);
+
+  try {
+    const res = await api.post("/remove-background", fd);
+    setPreviewUrl(`data:image/png;base64,${res.data.image}`);
+    setResultLinear(res.data.linear);
+    setResultDimensions({ width: res.data.width, height: res.data.height });
+  } catch (err) {
+    console.error("Background removal failed:", err);
+    alert("❌ Background removal failed. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Add background removal as a layer
+const handleAddBackgroundRemovalLayer = async () => {
+  if (!originalBlob) return;
+  
+  setLoading(true);
+  const fd = new FormData();
+  fd.append("image", originalBlob);
+
+  try {
+    const res = await api.post("/remove-background", fd);
+    
+    const newLayer = {
+      id: nextLayerId,
+      name: 'Background Removed',
+      type: 'filter',
+      filterType: 'background-removal',
+      params: {},
+      visible: true,
+      opacity: 1.0,
+      imageData: `data:image/png;base64,${res.data.image}`,
+      linear: res.data.linear,
+      width: res.data.width,
+      height: res.data.height
+    };
+    
+    setLayers(prev => [...prev, newLayer]);
+    setNextLayerId(prev => prev + 1);
+    await updateLayerComposite([...layers, newLayer]);
+  } catch (err) {
+    console.error("Failed to add background removal layer:", err);
+  } finally {
+    setLoading(false);
+  }
+};
   const handleToggleGrayscale = async () => {
     const newMode = !isGrayscaleMode;
     setIsGrayscaleMode(newMode);
@@ -944,6 +1006,27 @@ const updateLayerComposite = async (currentLayers) => {
             >
               + Add Blur Layer
             </button>
+            <div className="control-section">
+              <div className="section-header">
+                <span className="section-icon">🪄</span>
+                <span className="section-title">BACKGROUND REMOVAL</span>
+              </div>
+              <button 
+                className="btn-upload"
+                onClick={handleRemoveBackground}
+                disabled={!originalBlob}
+              >
+                <span className="upload-icon">✂️</span>
+                Remove Background
+              </button>
+              <button 
+                className="btn-add-layer" 
+                onClick={handleAddBackgroundRemovalLayer}
+                disabled={!originalBlob}
+              >
+                + Add as Layer
+              </button>
+            </div>
             
             <div className="control-slider">
               <label>Sharpen ({sharpenIntensity})</label>

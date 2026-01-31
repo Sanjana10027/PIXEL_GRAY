@@ -12,6 +12,8 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class ImagePipelineService {
@@ -35,464 +37,254 @@ public class ImagePipelineService {
         this.sharpenService = sharpenService;
     }
 
-    /**
-     * Composite layers SEQUENTIALLY - bottom to top
-     * Each layer modifies the accumulated result
-     */
     public ImageMatrixResponse compositeLayers(byte[] baseImageBytes, String layersJson) throws Exception {
         BufferedImage baseImage = ImageUtil.decode(baseImageBytes);
         int width = baseImage.getWidth();
         int height = baseImage.getHeight();
 
-        // Parse layers
+        // 1. Parse Layers (Ensures sequential order from JSON array)
         List<LayerData> layers = parseLayersJson(layersJson);
         
-        System.out.println("=== LAYER COMPOSITE DEBUG ===");
-        System.out.println("Total layers received: " + layers.size());
-        for (int i = 0; i < layers.size(); i++) {
-            LayerData l = layers.get(i);
-            System.out.println("Layer " + i + ": type=" + l.type + ", visible=" + l.visible + 
-                             ", opacity=" + l.opacity + ", filterType=" + l.filterType);
-        }
+        // 2. Start with a clean copy of the base as the "Canvas"
+        BufferedImage canvas = copyImage(baseImage);
 
-        // Start with a copy of base image
-        BufferedImage currentResult = copyImage(baseImage);
-
-        // Process layers from BOTTOM to TOP (array order)
+        // 3. Process each layer strictly in the order received (Bottom -> Top)
         for (int i = 0; i < layers.size(); i++) {
             LayerData layer = layers.get(i);
-            
-            if (!layer.visible) {
-                System.out.println("Skipping layer " + i + " (invisible)");
-                continue;
-            }
+            if (!layer.visible) continue;
 
-            System.out.println("Processing layer " + i + " (type: " + layer.type + ")");
-            
-            // Apply this layer to the current accumulated result
-            currentResult = applyLayer(currentResult, layer, baseImageBytes);
+            // Each step OVERWRITES canvas with the new blended result
+            canvas = applyLayer(canvas, layer);
         }
 
-        System.out.println("=== COMPOSITE COMPLETE ===");
-
         return new ImageMatrixResponse(
-            ImageUtil.encode(currentResult),
-            LinearMatrixUtil.toLinear(currentResult),
+            ImageUtil.encode(canvas),
+            LinearMatrixUtil.toLinear(canvas),
             width,
             height
         );
     }
 
-    /**
-     * Apply a single layer to the current accumulated result
-     */
-    private BufferedImage applyLayer(BufferedImage currentResult, LayerData layer, byte[] originalBase) throws Exception {
-        int width = currentResult.getWidth();
-        int height = currentResult.getHeight();
-
+    private BufferedImage applyLayer(BufferedImage canvas, LayerData layer) throws Exception {
         switch (layer.type) {
             case "color":
-                return blendColorLayer(currentResult, layer.color, layer.opacity);
-            
+                return blendColorLayer(canvas, layer.color, layer.opacity);
             case "gradient":
-                return blendGradientLayer(currentResult, layer.gradientStart, layer.gradientEnd, 
+                return blendGradientLayer(canvas, layer.gradientStart, layer.gradientEnd, 
                                          layer.gradientAngle, layer.opacity);
-            
             case "image":
-                return blendImageLayer(currentResult, layer.imageData, layer.opacity);
-            
+                return blendImageLayer(canvas, layer.imageData, layer.opacity);
             case "filter":
-                return applyFilterToCurrentResult(currentResult, layer);
-            
+                return applyFilterToCanvas(canvas, layer);
             default:
-                System.out.println("Unknown layer type: " + layer.type);
-                return currentResult;
+                return canvas;
         }
     }
 
-    /**
-     * Blend color layer on top of current result
-     */
     private BufferedImage blendColorLayer(BufferedImage base, String colorHex, float opacity) {
-        int width = base.getWidth();
-        int height = base.getHeight();
-        
-        BufferedImage colorLayer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = colorLayer.createGraphics();
+        int w = base.getWidth();
+        int h = base.getHeight();
+        BufferedImage overlay = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = overlay.createGraphics();
         g.setColor(hexToColor(colorHex));
-        g.fillRect(0, 0, width, height);
+        g.fillRect(0, 0, w, h);
         g.dispose();
-        
-        return blendImages(base, colorLayer, opacity);
+        return blendImages(base, overlay, opacity);
     }
 
-    /**
-     * Blend gradient layer on top of current result
-     * FIX: Proper gradient calculation
-     */
-    private BufferedImage blendGradientLayer(BufferedImage base, String startHex, String endHex, 
-                                            int angle, float opacity) {
-        int width = base.getWidth();
-        int height = base.getHeight();
+    private BufferedImage blendGradientLayer(BufferedImage base, String start, String end, int angle, float opacity) {
+        int w = base.getWidth();
+        int h = base.getHeight();
+        BufferedImage overlay = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = overlay.createGraphics();
         
-        BufferedImage gradientLayer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = gradientLayer.createGraphics();
+        double rads = Math.toRadians(angle);
+        double dist = Math.sqrt(w * w + h * h) / 2.0;
+        int x1 = (int)(w/2.0 - dist * Math.cos(rads));
+        int y1 = (int)(h/2.0 - dist * Math.sin(rads));
+        int x2 = (int)(w/2.0 + dist * Math.cos(rads));
+        int y2 = (int)(h/2.0 + dist * Math.sin(rads));
         
-        // Enable anti-aliasing for smoother gradients
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        
-        // Convert angle to radians
-        double radians = Math.toRadians(angle);
-        
-        // Calculate gradient vector based on angle
-        // We want the gradient to span the entire canvas
-        double centerX = width / 2.0;
-        double centerY = height / 2.0;
-        
-        // Calculate maximum distance from center to ensure gradient covers entire image
-        double maxDist = Math.sqrt(width * width + height * height) / 2.0;
-        
-        // Calculate start and end points
-        int x1 = (int)(centerX - maxDist * Math.cos(radians));
-        int y1 = (int)(centerY - maxDist * Math.sin(radians));
-        int x2 = (int)(centerX + maxDist * Math.cos(radians));
-        int y2 = (int)(centerY + maxDist * Math.sin(radians));
-        
-        Color startColor = hexToColor(startHex);
-        Color endColor = hexToColor(endHex);
-        
-        System.out.println("Gradient: " + startHex + " -> " + endHex + " at " + angle + "°");
-        System.out.println("Points: (" + x1 + "," + y1 + ") -> (" + x2 + "," + y2 + ")");
-        
-        GradientPaint gradient = new GradientPaint(x1, y1, startColor, x2, y2, endColor);
-        g.setPaint(gradient);
-        g.fillRect(0, 0, width, height);
+        g.setPaint(new GradientPaint(x1, y1, hexToColor(start), x2, y2, hexToColor(end)));
+        g.fillRect(0, 0, w, h);
         g.dispose();
         
-        return blendImages(base, gradientLayer, opacity);
+        return blendImages(base, overlay, opacity);
     }
 
-    /**
-     * Blend image layer on top of current result
-     */
     private BufferedImage blendImageLayer(BufferedImage base, String dataUrl, float opacity) throws Exception {
-        int width = base.getWidth();
-        int height = base.getHeight();
+        String b64 = dataUrl.contains(",") ? dataUrl.substring(dataUrl.indexOf(",") + 1) : dataUrl;
+        BufferedImage img = ImageUtil.decode(Base64.getDecoder().decode(b64.replaceAll("\\s", "")));
         
-        String base64Data = dataUrl.substring(dataUrl.indexOf(",") + 1);
-        byte[] imageBytes = Base64.getDecoder().decode(base64Data);
-        BufferedImage original = ImageUtil.decode(imageBytes);
-
-        BufferedImage resized = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage resized = new BufferedImage(base.getWidth(), base.getHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = resized.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        g.drawImage(original, 0, 0, width, height, null);
+        g.drawImage(img, 0, 0, base.getWidth(), base.getHeight(), null);
         g.dispose();
         
         return blendImages(base, resized, opacity);
     }
 
-    /**
-     * Apply filter to CURRENT RESULT (not original base)
-     * This is the key fix for sequential filter application
-     */
-    private BufferedImage applyFilterToCurrentResult(BufferedImage currentResult, LayerData layer) throws Exception {
-        // Convert current result to bytes
-        byte[] currentBytes = ImageUtil.encode(currentResult);
+    private BufferedImage applyFilterToCanvas(BufferedImage canvas, LayerData layer) throws Exception {
+        byte[] canvasBytes = ImageUtil.encode(canvas);
+        BufferedImage filtered = null;
         
-        BufferedImage filteredResult = null;
-        
+        // Filter logic modifies the accumulated stack
         switch (layer.filterType) {
             case "brightness":
-                int level = layer.getIntParam("level", 0);
-                System.out.println("Applying brightness: " + level);
-                filteredResult = ImageUtil.decode(brightnessService.apply(currentBytes, level, false).image);
+                filtered = ImageUtil.decode(brightnessService.apply(canvasBytes, layer.getIntParam("level", 0), false).image);
                 break;
-            
             case "contrast":
-                level = layer.getIntParam("level", 0);
-                System.out.println("Applying contrast: " + level);
-                filteredResult = ImageUtil.decode(contrastService.apply(currentBytes, level, false).image);
+                filtered = ImageUtil.decode(contrastService.apply(canvasBytes, layer.getIntParam("level", 0), false).image);
                 break;
-            
             case "blur":
-                int intensity = layer.getIntParam("intensity", 0);
-                System.out.println("Applying blur: " + intensity);
-                filteredResult = ImageUtil.decode(blurService.apply(currentBytes, intensity, false).image);
+                filtered = ImageUtil.decode(blurService.apply(canvasBytes, layer.getIntParam("intensity", 0), false).image);
                 break;
-            
             case "sharpen":
-                intensity = layer.getIntParam("intensity", 0);
-                System.out.println("Applying sharpen: " + intensity);
-                filteredResult = ImageUtil.decode(sharpenService.apply(currentBytes, intensity, false).image);
+                filtered = ImageUtil.decode(sharpenService.apply(canvasBytes, layer.getIntParam("intensity", 0), false).image);
                 break;
-            
             case "grayscale":
-                System.out.println("Applying grayscale");
-                filteredResult = grayscaleService.process(currentResult);
+                filtered = grayscaleService.process(canvas);
                 break;
-            
-            default:
-                System.out.println("Unknown filter type: " + layer.filterType);
-                return currentResult;
         }
         
-        if (filteredResult == null) {
-            return currentResult;
-        }
-        
-        // Blend filtered result with current using opacity
-        return blendImages(currentResult, filteredResult, layer.opacity);
+        return (filtered != null) ? blendImages(canvas, filtered, layer.opacity) : canvas;
     }
 
     /**
-     * Blend two images with opacity
-     * Uses MULTIPLY blend mode for filters to preserve base image
+     * CORRECTED SEQUENTIAL BLENDING
+     * Uses Standard Alpha Compositing: Result = Foreground * alpha + Background * (1 - alpha)
      */
     private BufferedImage blendImages(BufferedImage base, BufferedImage overlay, float opacity) {
-        int width = base.getWidth();
-        int height = base.getHeight();
+        int w = base.getWidth();
+        int h = base.getHeight();
+        BufferedImage res = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 
-        BufferedImage result = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int baseRGB = base.getRGB(x, y);
-                int overlayRGB = overlay.getRGB(x, y);
-                
-                // Extract RGBA components from base
-                int baseA = (baseRGB >> 24) & 0xFF;
-                int baseR = (baseRGB >> 16) & 0xFF;
-                int baseG = (baseRGB >> 8) & 0xFF;
-                int baseB = baseRGB & 0xFF;
-                
-                // Extract RGBA components from overlay
-                int overlayA = (overlayRGB >> 24) & 0xFF;
-                int overlayR = (overlayRGB >> 16) & 0xFF;
-                int overlayG = (overlayRGB >> 8) & 0xFF;
-                int overlayB = overlayRGB & 0xFF;
-                
-                // Apply opacity to overlay alpha
-                overlayA = (int)(overlayA * opacity);
-                
-                // Alpha blending formula
-                float alpha = overlayA / 255.0f;
-                int resultR = (int)(overlayR * alpha + baseR * (1 - alpha));
-                int resultG = (int)(overlayG * alpha + baseG * (1 - alpha));
-                int resultB = (int)(overlayB * alpha + baseB * (1 - alpha));
-                int resultA = Math.max(baseA, overlayA);
-                
-                int resultRGB = (resultA << 24) | (resultR << 16) | (resultG << 8) | resultB;
-                result.setRGB(x, y, resultRGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int argbB = base.getRGB(x, y);
+                int argbO = overlay.getRGB(x, y);
+
+                float aB = ((argbB >> 24) & 0xFF) / 255.0f;
+                float rB = ((argbB >> 16) & 0xFF) / 255.0f;
+                float gB = ((argbB >> 8) & 0xFF) / 255.0f;
+                float bB = (argbB & 0xFF) / 255.0f;
+
+                // Apply layer-wide opacity to the overlay's intrinsic alpha
+                float aO = (((argbO >> 24) & 0xFF) / 255.0f) * opacity;
+                float rO = ((argbO >> 16) & 0xFF) / 255.0f;
+                float gO = ((argbO >> 8) & 0xFF) / 255.0f;
+                float bO = (argbO & 0xFF) / 255.0f;
+
+                // Porter-Duff Source Over Equation
+                float outA = aO + aB * (1 - aO);
+                float outR = (outA > 0) ? (rO * aO + rB * aB * (1 - aO)) / outA : 0;
+                float outG = (outA > 0) ? (gO * aO + gB * aB * (1 - aO)) / outA : 0;
+                float outB = (outA > 0) ? (bO * aO + bB * aB * (1 - aO)) / outA : 0;
+
+                res.setRGB(x, y, ((int)(outA * 255) << 24) | ((int)(outR * 255) << 16) | 
+                                 ((int)(outG * 255) << 8) | (int)(outB * 255));
             }
         }
-        
-        return result;
+        return res;
     }
 
-    /**
-     * Create a copy of an image
-     */
-    private BufferedImage copyImage(BufferedImage source) {
-        BufferedImage copy = new BufferedImage(source.getWidth(), source.getHeight(), 
-                                              BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = copy.createGraphics();
-        g.drawImage(source, 0, 0, null);
+    private BufferedImage copyImage(BufferedImage s) {
+        BufferedImage c = new BufferedImage(s.getWidth(), s.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = c.createGraphics();
+        g.drawImage(s, 0, 0, null);
         g.dispose();
-        return copy;
+        return c;
     }
 
-    /**
-     * Convert hex color to Java Color
-     */
-    private Color hexToColor(String hex) {
-        hex = hex.replace("#", "");
-        int r = Integer.parseInt(hex.substring(0, 2), 16);
-        int g = Integer.parseInt(hex.substring(2, 4), 16);
-        int b = Integer.parseInt(hex.substring(4, 6), 16);
-        return new Color(r, g, b);
+    private Color hexToColor(String h) {
+        h = h.replace("#", "");
+        return new Color(Integer.parseInt(h.substring(0,2),16), 
+                         Integer.parseInt(h.substring(2,4),16), 
+                         Integer.parseInt(h.substring(4,6),16));
     }
 
-    /**
-     * Enhanced JSON parser with better debugging
-     */
+    // --- MANUAL JSON PARSING LOGIC (NO LIBRARIES) ---
+
     private List<LayerData> parseLayersJson(String json) {
-        List<LayerData> layers = new ArrayList<>();
+        List<LayerData> list = new ArrayList<>();
+        String content = json.trim();
+        if (content.startsWith("[")) content = content.substring(1);
+        if (content.endsWith("]")) content = content.substring(0, content.length() - 1);
         
-        json = json.trim();
-        if (json.startsWith("[")) json = json.substring(1);
-        if (json.endsWith("]")) json = json.substring(0, json.length() - 1);
-        json = json.trim();
-        
-        if (json.isEmpty()) return layers;
-
-        List<String> objects = extractJsonObjects(json);
-        
-        for (String obj : objects) {
-            LayerData layer = parseLayerObject(obj);
-            if (layer != null) {
-                layers.add(layer);
-            }
-        }
-        
-        return layers;
-    }
-
-    private List<String> extractJsonObjects(String json) {
-        List<String> objects = new ArrayList<>();
-        int braceCount = 0;
-        int start = -1;
-        
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-            
-            if (c == '{') {
-                if (braceCount == 0) {
-                    start = i;
-                }
-                braceCount++;
-            } else if (c == '}') {
-                braceCount--;
-                if (braceCount == 0 && start != -1) {
-                    objects.add(json.substring(start + 1, i));
-                    start = -1;
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '{') { if (depth == 0) start = i; depth++; }
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    list.add(parseObject(content.substring(start + 1, i)));
                 }
             }
         }
-        
-        return objects;
+        return list;
     }
 
-    private LayerData parseLayerObject(String obj) {
-        LayerData layer = new LayerData();
-        
-        List<String> pairs = splitByComma(obj);
-        
-        for (String pair : pairs) {
-            int colonIndex = pair.indexOf(':');
-            if (colonIndex == -1) continue;
-            
-            String key = pair.substring(0, colonIndex).trim().replace("\"", "");
-            String value = pair.substring(colonIndex + 1).trim();
-            
-            parseLayerField(layer, key, value);
-        }
-        
-        return layer;
-    }
-
-    private List<String> splitByComma(String str) {
-        List<String> parts = new ArrayList<>();
-        int braceCount = 0;
+    private LayerData parseObject(String obj) {
+        LayerData l = new LayerData();
+        int depth = 0;
         boolean inQuotes = false;
         int start = 0;
-        
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            
-            if (c == '"' && (i == 0 || str.charAt(i - 1) != '\\')) {
-                inQuotes = !inQuotes;
-            } else if (!inQuotes) {
-                if (c == '{') {
-                    braceCount++;
-                } else if (c == '}') {
-                    braceCount--;
-                } else if (c == ',' && braceCount == 0) {
-                    parts.add(str.substring(start, i));
+        for (int i = 0; i < obj.length(); i++) {
+            char c = obj.charAt(i);
+            if (c == '\"') inQuotes = !inQuotes;
+            if (!inQuotes) {
+                if (c == '{') depth++;
+                else if (c == '}') depth--;
+                else if (c == ',' && depth == 0) {
+                    processKV(l, obj.substring(start, i));
                     start = i + 1;
                 }
             }
         }
-        
-        if (start < str.length()) {
-            parts.add(str.substring(start));
-        }
-        
-        return parts;
+        processKV(l, obj.substring(start));
+        return l;
     }
 
-    private void parseLayerField(LayerData layer, String key, String value) {
-        value = value.trim();
-        if (value.startsWith("\"") && value.endsWith("\"")) {
-            value = value.substring(1, value.length() - 1);
-        }
-        
-        switch (key) {
-            case "type":
-                layer.type = value;
-                break;
-            case "visible":
-                layer.visible = Boolean.parseBoolean(value);
-                break;
-            case "opacity":
-                layer.opacity = Float.parseFloat(value);
-                break;
-            case "color":
-                layer.color = value;
-                break;
-            case "gradientStart":
-                layer.gradientStart = value;
-                break;
-            case "gradientEnd":
-                layer.gradientEnd = value;
-                break;
-            case "gradientAngle":
-                try {
-                    layer.gradientAngle = Integer.parseInt(value);
-                } catch (NumberFormatException e) {
-                    layer.gradientAngle = 90;
-                }
-                break;
-            case "imageData":
-                layer.imageData = value;
-                break;
-            case "filterType":
-                layer.filterType = value;
-                break;
-            case "params":
-                if (value.startsWith("{") && value.endsWith("}")) {
-                    parseParams(layer, value);
-                }
-                break;
+    private void processKV(LayerData l, String kv) {
+        int split = kv.indexOf(":");
+        if (split == -1) return;
+        String k = kv.substring(0, split).trim().replace("\"", "");
+        String v = kv.substring(split + 1).trim();
+        String rawV = v.startsWith("\"") ? v.substring(1, v.length()-1) : v;
+
+        switch(k) {
+            case "type": l.type = rawV; break;
+            case "visible": l.visible = Boolean.parseBoolean(rawV); break;
+            case "opacity": l.opacity = Float.parseFloat(rawV); break;
+            case "color": l.color = rawV; break;
+            case "gradientStart": l.gradientStart = rawV; break;
+            case "gradientEnd": l.gradientEnd = rawV; break;
+            case "gradientAngle": l.gradientAngle = Integer.parseInt(rawV); break;
+            case "imageData": l.imageData = rawV; break;
+            case "filterType": l.filterType = rawV; break;
+            case "params": parseParams(l, v); break;
         }
     }
 
-    private void parseParams(LayerData layer, String paramsJson) {
-        paramsJson = paramsJson.substring(1, paramsJson.length() - 1);
-        
-        List<String> pairs = splitByComma(paramsJson);
-        
-        for (String pair : pairs) {
-            int colonIndex = pair.indexOf(':');
-            if (colonIndex == -1) continue;
-            
-            String key = pair.substring(0, colonIndex).trim().replace("\"", "");
-            String value = pair.substring(colonIndex + 1).trim().replace("\"", "");
-            
-            layer.params.put(key, value);
+    private void parseParams(LayerData l, String p) {
+        if (!p.contains("{")) return;
+        String inner = p.substring(p.indexOf("{") + 1, p.lastIndexOf("}"));
+        for (String pair : inner.split(",")) {
+            String[] kv = pair.split(":");
+            if (kv.length == 2) l.params.put(kv[0].trim().replace("\"", ""), kv[1].trim().replace("\"", ""));
         }
     }
 
     private static class LayerData {
-        String type;
+        String type, color, gradientStart, gradientEnd, imageData, filterType;
         boolean visible = true;
         float opacity = 1.0f;
-        String color;
-        String gradientStart;
-        String gradientEnd;
         int gradientAngle = 90;
-        String imageData;
-        String filterType;
-        java.util.Map<String, String> params = new java.util.HashMap<>();
-
-        int getIntParam(String key, int defaultValue) {
-            String value = params.get(key);
-            if (value == null) return defaultValue;
-            try {
-                return Integer.parseInt(value);
-            } catch (NumberFormatException e) {
-                return defaultValue;
-            }
+        Map<String, String> params = new HashMap<>();
+        int getIntParam(String k, int d) {
+            try { return Integer.parseInt(params.get(k)); } catch(Exception e) { return d; }
         }
     }
 }

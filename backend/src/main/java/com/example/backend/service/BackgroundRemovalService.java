@@ -1,387 +1,216 @@
-// // package com.example.backend.service;
-
-// // import com.example.backend.models.ImageMatrixResponse;
-// // import com.example.backend.service.matrix.LinearMatrixUtil;
-// // import com.example.backend.service.util.ImageUtil;
-// // import org.springframework.stereotype.Service;
-// // import java.awt.image.BufferedImage;
-// // import java.io.IOException;
-
-// // @Service
-// // public class BackgroundRemovalService {
-
-// //     public ImageMatrixResponse apply(byte[] bytes) throws IOException {
-// //         BufferedImage img = ImageUtil.decode(bytes);
-// //         int width = img.getWidth();
-// //         int height = img.getHeight();
-        
-// //         // Create output image with alpha channel
-// //         BufferedImage result = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        
-// //         // Step 1: Detect background color (use corner pixels as reference)
-// //         int bgColor = detectBackgroundColor(img);
-        
-// //         // Step 2: Calculate color similarity threshold
-// //         int threshold = 40; // Adjust this value for sensitivity (lower = stricter)
-        
-// //         // Step 3: Process each pixel
-// //         for (int y = 0; y < height; y++) {
-// //             for (int x = 0; x < width; x++) {
-// //                 int pixel = img.getRGB(x, y);
-                
-// //                 // Check if pixel is similar to background color
-// //                 if (isColorSimilar(pixel, bgColor, threshold)) {
-// //                     // Make pixel transparent
-// //                     result.setRGB(x, y, 0x00000000); // Fully transparent
-// //                 } else {
-// //                     // Keep pixel as is (with full alpha)
-// //                     int r = (pixel >> 16) & 0xFF;
-// //                     int g = (pixel >> 8) & 0xFF;
-// //                     int b = pixel & 0xFF;
-// //                     result.setRGB(x, y, (0xFF << 24) | (r << 16) | (g << 8) | b);
-// //                 }
-// //             }
-// //         }
-        
-// //         return new ImageMatrixResponse(
-// //             ImageUtil.encode(result),
-// //             LinearMatrixUtil.toLinear(result),
-// //             width,
-// //             height
-// //         );
-// //     }
-    
-// //     /**
-// //      * Detect background color by sampling corner pixels
-// //      */
-// //     private int detectBackgroundColor(BufferedImage img) {
-// //         int width = img.getWidth();
-// //         int height = img.getHeight();
-        
-// //         // Sample corners and edges
-// //         int[] samples = new int[8];
-// //         samples[0] = img.getRGB(0, 0); // Top-left corner
-// //         samples[1] = img.getRGB(width - 1, 0); // Top-right corner
-// //         samples[2] = img.getRGB(0, height - 1); // Bottom-left corner
-// //         samples[3] = img.getRGB(width - 1, height - 1); // Bottom-right corner
-// //         samples[4] = img.getRGB(width / 2, 0); // Top center
-// //         samples[5] = img.getRGB(width / 2, height - 1); // Bottom center
-// //         samples[6] = img.getRGB(0, height / 2); // Left center
-// //         samples[7] = img.getRGB(width - 1, height / 2); // Right center
-        
-// //         // Find most common color among samples
-// //         return findMostCommonColor(samples);
-// //     }
-    
-// //     /**
-// //      * Find the most common color in an array of RGB values
-// //      */
-// //     private int findMostCommonColor(int[] colors) {
-// //         int maxCount = 0;
-// //         int mostCommon = colors[0];
-        
-// //         for (int i = 0; i < colors.length; i++) {
-// //             int count = 0;
-// //             for (int j = 0; j < colors.length; j++) {
-// //                 if (isColorSimilar(colors[i], colors[j], 30)) {
-// //                     count++;
-// //                 }
-// //             }
-// //             if (count > maxCount) {
-// //                 maxCount = count;
-// //                 mostCommon = colors[i];
-// //             }
-// //         }
-        
-// //         return mostCommon;
-// //     }
-    
-// //     /**
-// //      * Check if two colors are similar within a threshold
-// //      */
-// //     private boolean isColorSimilar(int color1, int color2, int threshold) {
-// //         int r1 = (color1 >> 16) & 0xFF;
-// //         int g1 = (color1 >> 8) & 0xFF;
-// //         int b1 = color1 & 0xFF;
-        
-// //         int r2 = (color2 >> 16) & 0xFF;
-// //         int g2 = (color2 >> 8) & 0xFF;
-// //         int b2 = color2 & 0xFF;
-        
-// //         // Calculate Euclidean distance in RGB space
-// //         int rDiff = r1 - r2;
-// //         int gDiff = g1 - g2;
-// //         int bDiff = b1 - b2;
-        
-// //         double distance = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff);
-        
-// //         return distance <= threshold;
-// //     }
-// // }
-
-
-
-
-
-
-
-
-
-// package com.example.backend.service;
-
-// import com.example.backend.models.ImageMatrixResponse;
-// import com.example.backend.service.matrix.LinearMatrixUtil;
-// import com.example.backend.service.util.ImageUtil;
-// import org.springframework.stereotype.Service;
-// import java.awt.image.BufferedImage;
-// import java.io.IOException;
-
-// @Service
-// public class BackgroundRemovalService {
-
-//     public ImageMatrixResponse apply(byte[] bytes) throws IOException {
-//         BufferedImage img = ImageUtil.decode(bytes);
-//         BufferedImage result = processImage(img);
-        
-//         return new ImageMatrixResponse(
-//             ImageUtil.encode(result),
-//             LinearMatrixUtil.toLinear(result),
-//             result.getWidth(),
-//             result.getHeight()
-//         );
-//     }
-
-//     /**
-//      * Process a BufferedImage directly (for pipeline use)
-//      */
-//     public BufferedImage processImage(BufferedImage img) {
-//         int width = img.getWidth();
-//         int height = img.getHeight();
-        
-//         // Create output image with alpha channel
-//         BufferedImage result = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        
-//         // Step 1: Detect background color (use corner pixels as reference)
-//         int bgColor = detectBackgroundColor(img);
-        
-//         // Step 2: Calculate color similarity threshold
-//         int threshold = 40; // Adjust this value for sensitivity (lower = stricter)
-        
-//         // Step 3: Process each pixel
-//         for (int y = 0; y < height; y++) {
-//             for (int x = 0; x < width; x++) {
-//                 int pixel = img.getRGB(x, y);
-                
-//                 // Check if pixel is similar to background color
-//                 if (isColorSimilar(pixel, bgColor, threshold)) {
-//                     // Make pixel transparent
-//                     result.setRGB(x, y, 0x00000000); // Fully transparent
-//                 } else {
-//                     // Keep pixel as is (with full alpha)
-//                     int r = (pixel >> 16) & 0xFF;
-//                     int g = (pixel >> 8) & 0xFF;
-//                     int b = pixel & 0xFF;
-//                     result.setRGB(x, y, (0xFF << 24) | (r << 16) | (g << 8) | b);
-//                 }
-//             }
-//         }
-        
-//         return result;
-//     }
-    
-//     /**
-//      * Detect background color by sampling corner pixels
-//      */
-//     private int detectBackgroundColor(BufferedImage img) {
-//         int width = img.getWidth();
-//         int height = img.getHeight();
-        
-//         // Sample corners and edges
-//         int[] samples = new int[8];
-//         samples[0] = img.getRGB(0, 0); // Top-left corner
-//         samples[1] = img.getRGB(width - 1, 0); // Top-right corner
-//         samples[2] = img.getRGB(0, height - 1); // Bottom-left corner
-//         samples[3] = img.getRGB(width - 1, height - 1); // Bottom-right corner
-//         samples[4] = img.getRGB(width / 2, 0); // Top center
-//         samples[5] = img.getRGB(width / 2, height - 1); // Bottom center
-//         samples[6] = img.getRGB(0, height / 2); // Left center
-//         samples[7] = img.getRGB(width - 1, height / 2); // Right center
-        
-//         // Find most common color among samples
-//         return findMostCommonColor(samples);
-//     }
-    
-//     /**
-//      * Find the most common color in an array of RGB values
-//      */
-//     private int findMostCommonColor(int[] colors) {
-//         int maxCount = 0;
-//         int mostCommon = colors[0];
-        
-//         for (int i = 0; i < colors.length; i++) {
-//             int count = 0;
-//             for (int j = 0; j < colors.length; j++) {
-//                 if (isColorSimilar(colors[i], colors[j], 30)) {
-//                     count++;
-//                 }
-//             }
-//             if (count > maxCount) {
-//                 maxCount = count;
-//                 mostCommon = colors[i];
-//             }
-//         }
-        
-//         return mostCommon;
-//     }
-    
-//     /**
-//      * Check if two colors are similar within a threshold
-//      */
-//     private boolean isColorSimilar(int color1, int color2, int threshold) {
-//         int r1 = (color1 >> 16) & 0xFF;
-//         int g1 = (color1 >> 8) & 0xFF;
-//         int b1 = color1 & 0xFF;
-        
-//         int r2 = (color2 >> 16) & 0xFF;
-//         int g2 = (color2 >> 8) & 0xFF;
-//         int b2 = color2 & 0xFF;
-        
-//         // Calculate Euclidean distance in RGB space
-//         int rDiff = r1 - r2;
-//         int gDiff = g1 - g2;
-//         int bDiff = b1 - b2;
-        
-//         double distance = Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff);
-        
-//         return distance <= threshold;
-//     }
-// }
-
-
-
-
-
 package com.example.backend.service;
 
+import com.example.backend.models.ImageMatrixResponse;
+import com.example.backend.service.matrix.LinearMatrixUtil;
+import com.example.backend.service.util.ImageUtil;
 import org.springframework.stereotype.Service;
-import java.awt.image.BufferedImage;
 
-/**
- * Simple background removal using color-based segmentation
- * No external libraries - pure Java implementation
- */
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.*;
+import java.nio.file.Files;
+import java.util.*;
+import java.util.List;
+
 @Service
 public class BackgroundRemovalService {
 
-    private static final int DEFAULT_THRESHOLD = 30;
-    private static final int EDGE_SAMPLES = 20;
+    private static String PYTHON_PATH = null;
+    private static final String TEMP_DIR = System.getProperty("java.io.tmpdir") + File.separator + "pixellab_ai";
+    private static final int DEFAULT_SENSITIVITY = 30;
+
+    static {
+        detectPython();
+        File dir = new File(TEMP_DIR);
+        if (!dir.exists()) dir.mkdirs();
+    }
+
+    private static void detectPython() {
+        String[] commands = {"python3", "python", "py"};
+        for (String cmd : commands) {
+            try {
+                Process p = new ProcessBuilder(cmd, "--version").start();
+                if (p.waitFor() == 0) {
+                    PYTHON_PATH = cmd;
+                    break;
+                }
+            } catch (Exception ignored) {}
+        }
+    }
 
     /**
-     * Remove background by detecting dominant edge color
+     * Main entry point compatible with your BrightnessService style.
      */
-    public BufferedImage processImage(BufferedImage input) {
-        int width = input.getWidth();
-        int height = input.getHeight();
+    public ImageMatrixResponse apply(byte[] bytes, String mode, int sensitivity) throws Exception {
+        BufferedImage input = ImageUtil.decode(bytes);
+        BufferedImage output;
 
-        // Detect background color from edges
-        int backgroundColor = detectBackgroundColor(input);
+        // Use requested sensitivity or default
+        int finalSensitivity = (sensitivity <= 0) ? DEFAULT_SENSITIVITY : sensitivity;
 
-        // Create output with transparency
-        BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        // Try AI first if requested
+        if (("ai".equalsIgnoreCase(mode) || "auto".equalsIgnoreCase(mode)) && isRembgAvailable()) {
+            try {
+                output = removeBackgroundWithAI(input);
+            } catch (Exception e) {
+                // Fallback to manual if Python script fails
+                output = processManual(input, finalSensitivity);
+            }
+        } else {
+            output = processManual(input, finalSensitivity);
+        }
 
-        // Process each pixel
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int pixel = input.getRGB(x, y);
+        return new ImageMatrixResponse(
+                ImageUtil.encode(output),
+                LinearMatrixUtil.toLinear(output),
+                output.getWidth(),
+                output.getHeight()
+        );
+    }
+
+    // --- AI LOGIC (REMBG BRIDGE) ---
+
+    private BufferedImage removeBackgroundWithAI(BufferedImage image) throws Exception {
+        String id = UUID.randomUUID().toString();
+        File inputFile = new File(TEMP_DIR, "in_" + id + ".png");
+        File outputFile = new File(TEMP_DIR, "out_" + id + ".png");
+        File scriptFile = new File(TEMP_DIR, "script_" + id + ".py");
+
+        try {
+            ImageIO.write(image, "PNG", inputFile);
+
+            String script = String.format(
+                "import sys\n" +
+                "try:\n" +
+                "    from rembg import remove\n" +
+                "    from PIL import Image\n" +
+                "    input_img = Image.open(r'%s').convert('RGBA')\n" +
+                "    output_img = remove(input_img)\n" +
+                "    output_img.save(r'%s')\n" +
+                "    sys.exit(0)\n" +
+                "except Exception as e:\n" +
+                "    print(e)\n" +
+                "    sys.exit(1)", 
+                inputFile.getAbsolutePath(), outputFile.getAbsolutePath());
+
+            Files.write(scriptFile.toPath(), script.getBytes());
+
+            ProcessBuilder pb = new ProcessBuilder(PYTHON_PATH, scriptFile.getAbsolutePath());
+            Process p = pb.start();
+            p.waitFor();
+
+            if (!outputFile.exists()) throw new Exception("AI failed");
+            return ImageIO.read(outputFile);
+        } finally {
+            inputFile.delete();
+            outputFile.delete();
+            scriptFile.delete();
+        }
+    }
+
+    private boolean isRembgAvailable() {
+        if (PYTHON_PATH == null) return false;
+        try {
+            Process p = new ProcessBuilder(PYTHON_PATH, "-c", "import rembg").start();
+            return p.waitFor() == 0;
+        } catch (Exception e) { return false; }
+    }
+
+    // --- IMPROVED MANUAL ALGORITHM ---
+
+    public BufferedImage processManual(BufferedImage input, int sensitivity) {
+        int w = input.getWidth();
+        int h = input.getHeight();
+
+        Color bg = sampleEdges(input);
+
+        // Create mask
+        boolean[][] mask = new boolean[h][w];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int rgb = input.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF;
+                int g = (rgb >> 8) & 0xFF;
+                int b = rgb & 0xFF;
+
+                double dist = Math.sqrt(Math.pow(r - bg.getRed(), 2) + 
+                                        Math.pow(g - bg.getGreen(), 2) + 
+                                        Math.pow(b - bg.getBlue(), 2));
                 
-                if (isSimilarColor(pixel, backgroundColor, DEFAULT_THRESHOLD)) {
-                    // Make background transparent
-                    output.setRGB(x, y, 0x00000000);
+                mask[y][x] = dist > (sensitivity + 20); 
+            }
+        }
+
+        mask = keepLargestComponent(mask, w, h);
+
+        BufferedImage output = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (mask[y][x]) {
+                    output.setRGB(x, y, input.getRGB(x, y));
                 } else {
-                    // Keep foreground pixel
-                    output.setRGB(x, y, pixel | 0xFF000000);
+                    output.setRGB(x, y, 0x00000000); // Transparent
+                }
+            }
+        }
+        return output;
+    }
+
+    private Color sampleEdges(BufferedImage img) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+        long rSum = 0, gSum = 0, bSum = 0;
+        int count = 0;
+
+        // Sample top and bottom edges
+        for (int x = 0; x < w; x += 5) {
+            int rgbT = img.getRGB(x, 0);
+            int rgbB = img.getRGB(x, h - 1);
+            rSum += ((rgbT >> 16) & 0xFF) + ((rgbB >> 16) & 0xFF);
+            gSum += ((rgbT >> 8) & 0xFF) + ((rgbB >> 8) & 0xFF);
+            bSum += (rgbT & 0xFF) + (rgbB & 0xFF);
+            count += 2;
+        }
+
+        if (count == 0) return Color.WHITE;
+        return new Color((int)(rSum/count), (int)(gSum/count), (int)(bSum/count));
+    }
+
+    private boolean[][] keepLargestComponent(boolean[][] mask, int w, int h) {
+        boolean[][] visited = new boolean[h][w];
+        int maxArea = 0;
+        List<int[]> largestComponent = new ArrayList<>();
+
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (mask[y][x] && !visited[y][x]) {
+                    List<int[]> current = new ArrayList<>();
+                    Queue<int[]> q = new LinkedList<>();
+                    q.add(new int[]{x, y});
+                    visited[y][x] = true;
+
+                    while(!q.isEmpty()){
+                        int[] p = q.poll();
+                        current.add(p);
+                        int[][] neighbors = {{p[0]+1,p[1]}, {p[0]-1,p[1]}, {p[0],p[1]+1}, {p[0],p[1]-1}};
+                        for(int[] n : neighbors){
+                            if(n[0]>=0 && n[0]<w && n[1]>=0 && n[1]<h && mask[n[1]][n[0]] && !visited[n[1]][n[0]]){
+                                visited[n[1]][n[0]] = true;
+                                q.add(n);
+                            }
+                        }
+                    }
+                    if(current.size() > maxArea){
+                        maxArea = current.size();
+                        largestComponent = current;
+                    }
                 }
             }
         }
 
-        return output;
-    }
-
-    /**
-     * Detect most common color from image edges
-     */
-    private int detectBackgroundColor(BufferedImage img) {
-        int width = img.getWidth();
-        int height = img.getHeight();
-        
-        java.util.Map<Integer, Integer> colorCount = new java.util.HashMap<>();
-
-        // Sample top edge
-        for (int x = 0; x < width; x += Math.max(1, width / EDGE_SAMPLES)) {
-            countColor(img.getRGB(x, 0), colorCount);
-        }
-
-        // Sample bottom edge
-        for (int x = 0; x < width; x += Math.max(1, width / EDGE_SAMPLES)) {
-            countColor(img.getRGB(x, height - 1), colorCount);
-        }
-
-        // Sample left edge
-        for (int y = 0; y < height; y += Math.max(1, height / EDGE_SAMPLES)) {
-            countColor(img.getRGB(0, y), colorCount);
-        }
-
-        // Sample right edge
-        for (int y = 0; y < height; y += Math.max(1, height / EDGE_SAMPLES)) {
-            countColor(img.getRGB(width - 1, y), colorCount);
-        }
-
-        // Find most common color
-        int maxCount = 0;
-        int dominantColor = 0xFFFFFFFF;
-
-        for (java.util.Map.Entry<Integer, Integer> entry : colorCount.entrySet()) {
-            if (entry.getValue() > maxCount) {
-                maxCount = entry.getValue();
-                dominantColor = entry.getKey();
-            }
-        }
-
-        return dominantColor;
-    }
-
-    /**
-     * Increment color count in map
-     */
-    private void countColor(int rgb, java.util.Map<Integer, Integer> colorCount) {
-        // Quantize color to reduce noise (group similar colors)
-        int quantized = quantizeColor(rgb);
-        colorCount.put(quantized, colorCount.getOrDefault(quantized, 0) + 1);
-    }
-
-    /**
-     * Quantize color to nearest 32-step value
-     */
-    private int quantizeColor(int rgb) {
-        int r = ((rgb >> 16) & 0xFF) / 32 * 32;
-        int g = ((rgb >> 8) & 0xFF) / 32 * 32;
-        int b = (rgb & 0xFF) / 32 * 32;
-        return (0xFF << 24) | (r << 16) | (g << 8) | b;
-    }
-
-    /**
-     * Check if two colors are similar within threshold
-     */
-    private boolean isSimilarColor(int color1, int color2, int threshold) {
-        int r1 = (color1 >> 16) & 0xFF;
-        int g1 = (color1 >> 8) & 0xFF;
-        int b1 = color1 & 0xFF;
-
-        int r2 = (color2 >> 16) & 0xFF;
-        int g2 = (color2 >> 8) & 0xFF;
-        int b2 = color2 & 0xFF;
-
-        int diff = Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
-        return diff < threshold;
+        boolean[][] result = new boolean[h][w];
+        for(int[] p : largestComponent) result[p[1]][p[0]] = true;
+        return result;
     }
 }
