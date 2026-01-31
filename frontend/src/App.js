@@ -349,6 +349,8 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [isGrayscaleMode, setIsGrayscaleMode] = useState(false);
   
+  const [lastAppliedFilter, setLastAppliedFilter] = useState(null);
+  
   const [cropData, setCropData] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -392,6 +394,7 @@ export default function App() {
     setLayerViewUrl(null);
     setLockedPos(null);
     setLayers([]);
+    setLastAppliedFilter(null);
     resetToolStates();
   };
 
@@ -414,6 +417,7 @@ export default function App() {
         if (blurIntensity === 0 && brightness === 0 && contrast === 0 && sharpenIntensity === 0 && zoom === 1) {
           setPreviewUrl(null);
           setResultLinear(res.data.linear);
+          setLastAppliedFilter(null);
         } else {
           // Re-apply current filter settings
           if (brightness !== 0) {
@@ -427,8 +431,6 @@ export default function App() {
           }
         }
         
-        // Layer view should NOT change when toggling grayscale mode
-        // It remains as is since layers are independent
       } catch (err) { console.error(err); } 
       finally { setLoading(false); }
     }
@@ -447,7 +449,7 @@ export default function App() {
     setBrightness(0); setContrast(0); setBlurIntensity(0);
     setSharpenIntensity(0); setRotateAngle(0); setZoom(1);
     setIsGrayscaleMode(false); setCropData({ x: 0, y: 0, w: 0, h: 0 });
-    setIsCropMode(false);
+    setIsCropMode(false); setLastAppliedFilter(null);
   };
 
   const handleResetAll = () => {
@@ -476,6 +478,7 @@ export default function App() {
         setPreviewUrl(null);
         setResultLinear(sourceLinear);
         setResultDimensions({ width: dimensions.width, height: dimensions.height });
+        setLastAppliedFilter(null);
         return;
     }
 
@@ -483,6 +486,7 @@ export default function App() {
         setPreviewUrl(null);
         setResultLinear(sourceLinear);
         setResultDimensions({ width: dimensions.width, height: dimensions.height });
+        setLastAppliedFilter(null);
         return;
     }
 
@@ -501,6 +505,7 @@ export default function App() {
       const res = await api.post(`/${endpoint}`, fd);
       setPreviewUrl(`data:image/png;base64,${res.data.image}`);
       setResultLinear(res.data.linear);
+      setLastAppliedFilter(endpoint);
       
       setResultDimensions({ 
           width: res.data.width, 
@@ -513,7 +518,7 @@ export default function App() {
     }
   };
 
-  // Add filter as layer - NOW WORKS FOR ALL FILTERS
+  // FIX #1 & #2: Modified to allow independent layer addition
   const handleAddFilterAsLayer = async (filterType, params) => {
     if (!originalBlob) return;
     
@@ -616,34 +621,46 @@ export default function App() {
   };
 
   // Update layer composite by sending to backend
-  const updateLayerComposite = async (currentLayers) => {
-    if (!originalBlob || currentLayers.length === 0) {
-      setLayerViewUrl(null);
-      setLayerLinear(null);
-      return;
-    }
+const updateLayerComposite = async (currentLayers) => {
+  if (!originalBlob) {
+    setLayerViewUrl(null);
+    setLayerLinear(null);
+    setLayerDimensions({ width: 0, height: 0 });
+    return;
+  }
 
-    setLoading(true);
-    try {
-      const visibleLayers = currentLayers.filter(l => l.visible);
-      const fd = new FormData();
-      fd.append("image", originalBlob);
-      fd.append("layers", JSON.stringify(visibleLayers));
+  // Even if no layers, we should show the original image
+  if (currentLayers.length === 0) {
+    setLayerViewUrl(null);
+    setLayerLinear(sourceLinear);
+    setLayerDimensions({ width: dimensions.width, height: dimensions.height });
+    return;
+  }
 
-      const res = await api.post("/composite-layers", fd);
-      setLayerViewUrl(`data:image/png;base64,${res.data.image}`);
-      setLayerLinear(res.data.linear);
-      setLayerDimensions({
-        width: res.data.width,
-        height: res.data.height
-      });
-    } catch (err) {
-      console.error("Composite failed:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    // Send ALL layers (backend will filter visible ones)
+    const fd = new FormData();
+    fd.append("image", originalBlob);
+    fd.append("layers", JSON.stringify(currentLayers));
 
+    const res = await api.post("/composite-layers", fd);
+    setLayerViewUrl(`data:image/png;base64,${res.data.image}`);
+    setLayerLinear(res.data.linear);
+    setLayerDimensions({
+      width: res.data.width,
+      height: res.data.height
+    });
+  } catch (err) {
+    console.error("Composite failed:", err);
+    // On error, reset to source
+    setLayerViewUrl(null);
+    setLayerLinear(sourceLinear);
+    setLayerDimensions({ width: dimensions.width, height: dimensions.height });
+  } finally {
+    setLoading(false);
+  }
+};
   // Layer operations
   const handleToggleVisibility = (layerId) => {
     const newLayers = layers.map(layer => 
@@ -692,7 +709,7 @@ export default function App() {
     updateLayerComposite(newLayers);
   };
 
-  // Submit final composite - FIXED TO COMBINE ALL LAYERS WITH ORIGINAL
+  // Submit final composite
   const handleSubmitFinal = async () => {
     if (!originalBlob) {
       alert("Please upload an image first!");
@@ -731,7 +748,7 @@ export default function App() {
     }
   };
 
-  // Crop functionality - NOW ONLY MODIFIES RESULT IMAGE
+  // Crop functionality
   const handleApplyCrop = async () => {
     if (!originalBlob || cropData.w === 0 || cropData.h === 0) {
       alert("Please select a crop area first!");
@@ -750,7 +767,6 @@ export default function App() {
     try {
       const res = await api.post("/crop", fd);
       
-      // Update ONLY the result/preview, NOT the original
       setPreviewUrl(`data:image/png;base64,${res.data.image}`);
       setResultLinear(res.data.linear);
       setResultDimensions({ width: res.data.width, height: res.data.height });
@@ -803,7 +819,7 @@ export default function App() {
       <header className="brand-header">
         <div className="logo-section">
           <div className="logo">PIXEL<span>GREY</span></div>
-          <div className="logo-version">v2.0</div>
+          <div className="logo-version">v2.1</div>
         </div>
         
         <div className="header-controls">
@@ -874,6 +890,7 @@ export default function App() {
             )}
           </div>
 
+          {/* FIX #1: Separate buttons for Brightness and Contrast */}
           <div className="control-section">
             <div className="section-header">
               <span className="section-icon">🎚️</span>
@@ -885,6 +902,14 @@ export default function App() {
                 onChange={e => setBrightness(+e.target.value)} 
                 onMouseUp={() => processImage('brightness', { level: brightness })} />
             </div>
+            <button 
+              className="btn-add-layer" 
+              onClick={() => handleAddFilterAsLayer('brightness', { level: brightness })}
+              disabled={brightness === 0}
+            >
+              + Add Brightness Layer
+            </button>
+            
             <div className="control-slider">
               <label>Contrast ({contrast})</label>
               <input type="range" min="-100" max="100" value={contrast} 
@@ -893,16 +918,14 @@ export default function App() {
             </div>
             <button 
               className="btn-add-layer" 
-              onClick={() => {
-                if (brightness !== 0) handleAddFilterAsLayer('brightness', { level: brightness });
-                else if (contrast !== 0) handleAddFilterAsLayer('contrast', { level: contrast });
-              }}
-              disabled={brightness === 0 && contrast === 0}
+              onClick={() => handleAddFilterAsLayer('contrast', { level: contrast })}
+              disabled={contrast === 0}
             >
-              + Add as Layer
+              + Add Contrast Layer
             </button>
           </div>
 
+          {/* FIX #2: Separate buttons for Blur and Sharpen */}
           <div className="control-section">
             <div className="section-header">
               <span className="section-icon">🔧</span>
@@ -914,6 +937,14 @@ export default function App() {
                 onChange={e => setBlurIntensity(+e.target.value)} 
                 onMouseUp={() => processImage('blur', { intensity: blurIntensity })} />
             </div>
+            <button 
+              className="btn-add-layer" 
+              onClick={() => handleAddFilterAsLayer('blur', { intensity: blurIntensity })}
+              disabled={blurIntensity === 0}
+            >
+              + Add Blur Layer
+            </button>
+            
             <div className="control-slider">
               <label>Sharpen ({sharpenIntensity})</label>
               <input type="range" min="0" max="20" value={sharpenIntensity} 
@@ -922,13 +953,10 @@ export default function App() {
             </div>
             <button 
               className="btn-add-layer" 
-              onClick={() => {
-                if (blurIntensity !== 0) handleAddFilterAsLayer('blur', { intensity: blurIntensity });
-                else if (sharpenIntensity !== 0) handleAddFilterAsLayer('sharpen', { intensity: sharpenIntensity });
-              }}
-              disabled={blurIntensity === 0 && sharpenIntensity === 0}
+              onClick={() => handleAddFilterAsLayer('sharpen', { intensity: sharpenIntensity })}
+              disabled={sharpenIntensity === 0}
             >
-              + Add as Layer
+              + Add Sharpen Layer
             </button>
           </div>
 
